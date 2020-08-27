@@ -7,7 +7,7 @@
 # SOLUTION:
 > a. In new terminal connect to app1 host:
 ```
-tony@172.16.238.10
+ssh tony@172.16.238.10
 ```
 > b. Set shell variable:
 ```
