@@ -5,7 +5,7 @@
 >  Install the required packages of SElinux on *`App server 3`* in Stratos Datacenter and disable it permanently for now; it will be enabled after making some required configuration changes on this host. Don't worry about rebooting the server as there is already a reboot scheduled for tonight's maintenance window. Also ignore the status of SElinux command line right now; the final status after reboot should be *`disabled`*.
 
 ## SOLUTION:
-> a. In new terminal connect to app1 host:
+> a. In new terminal connect to app3 host:
 ```
 ssh banner@172.16.238.12
 ```
