@@ -19,10 +19,10 @@ yum install -y policycoreutils policycoreutils-python selinux-policy selinux-pol
 ```
 >d. Change selinux config:
 
----
+___
   'sed' will broke symlink /etc/sysconfig/selinux -> ../selinux/config
   we need to write /etc/selinux/config instead /etc/sysconfig/selinux
----
+___
 ```
 sed -i 's/^SELINUX=enforcing/SELINUX=disabled/' /etc/selinux/config
 ```
