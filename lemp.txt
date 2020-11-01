@@ -1,0 +1,304 @@
+Uname=kodekloud_cap;
+Dbase=kodekloud_db1;
+Pword=GyQkFRVNr3;
+
+kubectl create secret generic mysql-root-pass --from-literal=password=R00t
+kubectl create secret generic mysql-user-pass --from-literal=username=${Uname} --from-literal=password=${Pword}
+kubectl create secret generic mysql-db-url --from-literal=database=${Dbase}
+kubectl create secret generic mysql-host --from-literal=host=mysql-service
+
+
+cat <<EOF > nginx.yml
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: nginx-config
+data:
+  nginx.conf: |
+    events {
+    }
+
+    http {
+      server {
+        listen 80 default_server;
+        listen [::]:80 default_server;
+        
+        root /var/www/html;
+        index index.html index.htm index.php;
+        server_name _;
+
+        location / {
+          rewrite .* /index.php;
+        }
+
+        location ~ \.php$ {
+          include fastcgi_params;
+          fastcgi_index index.php;
+          fastcgi_pass 127.0.0.1:9000;
+          fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+          fastcgi_param REQUEST_METHOD \$request_method;
+        }
+      }
+    }
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: nginx-pv
+  labels:
+    type: local
+spec:
+  storageClassName: standard
+  persistentVolumeReclaimPolicy: Retain
+  capacity:
+    storage: 750Mi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/mnt/data"	
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nginx-pv-claim
+spec:
+  storageClassName: standard
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 550Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-wp-dp
+  labels:
+    app: lemp
+    tier: frontend
+spec:
+  selector:
+    matchLabels:
+      app: lemp
+      tier: frontend
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: lemp
+        tier: frontend
+    spec:
+      containers:
+      - image: nginx:latest
+        name: nginx-container
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-root-pass
+              key: password
+        - name: MYSQL_DATABASE
+          valueFrom:
+            secretKeyRef:
+              name: mysql-db-url
+              key: database
+        - name: MYSQL_USER
+          valueFrom:
+            secretKeyRef:
+              name: mysql-user-pass
+              key: username
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-user-pass
+              key: password
+        - name: MYSQL_HOST
+          valueFrom:
+            secretKeyRef:
+              name: mysql-host
+              key: host
+        volumeMounts:
+        - name: shared-files
+          mountPath: /var/www/html	
+        - name: nginx-config-volume
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+      - image: wordpress:php7.2-fpm 
+        name: php-fpm-container
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-root-pass
+              key: password
+        - name: MYSQL_DATABASE
+          valueFrom:
+            secretKeyRef:
+              name: mysql-db-url
+              key: database
+        - name: MYSQL_USER
+          valueFrom:
+            secretKeyRef:
+              name: mysql-user-pass
+              key: username
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-user-pass
+              key: password
+        - name: MYSQL_HOST
+          valueFrom:
+            secretKeyRef:
+              name: mysql-host
+              key: host
+        volumeMounts:
+        - name: shared-files
+          mountPath: /var/www/html
+      volumes:
+      - name: nginx-persistent-storage 
+        persistentVolumeClaim:
+          claimName: nginx-pv-claim	  
+      - name: shared-files 
+        emptyDir: {}
+      - name: nginx-config-volume
+        configMap:
+          name: nginx-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 80
+    nodePort: 30008
+  selector:
+    tier: frontend
+---
+EOF
+
+
+cat <<EOF > mysql.yml
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mysql-pv
+  labels:
+    type: local
+spec:
+  storageClassName: standard
+  persistentVolumeReclaimPolicy: Retain
+  capacity:
+    storage: 750Mi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/mnt/data"	
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-pv-claim
+spec:
+  storageClassName: standard
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 550Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql-deployment
+  labels:
+    app: lemp
+    tier: backend
+spec:
+  selector:
+    matchLabels:
+      app: lemp
+      tier: backend
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: lemp
+        tier: backend
+    spec:
+      containers:	  
+      - image: mysql:5.6
+        name: mysql-container
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-root-pass
+              key: password
+        - name: MYSQL_DATABASE
+          valueFrom:
+            secretKeyRef:
+              name: mysql-db-url
+              key: database
+        - name: MYSQL_USER
+          valueFrom:
+            secretKeyRef:
+              name: mysql-user-pass
+              key: username
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-user-pass
+              key: password
+        - name: MYSQL_HOST
+          valueFrom:
+            secretKeyRef:
+              name: mysql-host
+              key: host
+        ports:
+        - containerPort: 3306
+          name: mysql
+        volumeMounts:
+        - name: mysql-persistent-storage
+          mountPath: /var/lib/mysql
+      volumes:
+      - name: mysql-persistent-storage
+        persistentVolumeClaim:
+          claimName: mysql-pv-claim 
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-service
+  labels:
+    tier: backend
+spec:
+  ports:
+    - port: 3306
+  selector:
+    tier: backend
+  clusterIP: None
+---
+EOF
+
+
+MYSQL=$(kubectl get pods | grep mysql |awk '{print $1}'|  tail -n -1)
+kubectl cp /tmp/db.sql $MYSQL:/tmp/
+kubectl exec -it $MYSQL -c mysql-container --  mysql -uroot -pR00t -hlocalhost ${Dbase}  < /tmp/db.sql
+
+kubectl exec -it $(kubectl get pods | grep nginx |awk '{print $1}'|  tail -n -1) -c php-fpm-container --  cat /var/www/html/wp-config.php 
+
+kubectl exec -it $(kubectl get pods | grep nginx |awk '{print $1}'|  tail -n -1) -c php-fpm-container --  sed -i "/DB_PASSWORD/s/'[^']*'/\$_ENV[\'MYSQL_PASSWORD\']/2" /var/www/html/wp-config.php
+
+kubectl exec -it $(kubectl get pods | grep nginx |awk '{print $1}'|  tail -n -1) -c php-fpm-container --  sed -i "/DB_NAME/s/'[^']*'/\$_ENV[\'MYSQL_DATABASE\']/2" /var/www/html/wp-config.php
+
+kubectl exec -it $(kubectl get pods | grep nginx |awk '{print $1}'|  tail -n -1) -c php-fpm-container --  sed -i "/DB_USER/s/'[^']*'/\$_ENV[\'MYSQL_USER\']/2" /var/www/html/wp-config.php
+
+kubectl exec -it $(kubectl get pods | grep nginx |awk '{print $1}'|  tail -n -1) -c php-fpm-container --  sed -i "/DB_HOST/s/'[^']*'/\$_ENV[\'MYSQL_HOST\']/2" /var/www/html/wp-config.php
+
