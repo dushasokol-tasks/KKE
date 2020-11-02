@@ -1,0 +1,170 @@
+Uname=kodekloud_sam;
+Dbase=kodekloud_db10;
+Pword=Rc5C9EyvbU;
+
+kubectl create secret generic mysql-root-pass --from-literal=password=R00t
+kubectl create secret generic mysql-user-pass --from-literal=username=${Uname} --from-literal=password=${Pword}
+kubectl create secret generic mysql-db-url --from-literal=database=${Dbase}
+kubectl create secret generic mysql-host --from-literal=host=mysql-service
+
+
+cat <<EOF > nginx.yml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lamp-service
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 80
+    nodePort: 30008
+  selector:
+    tier: frontend
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-service
+spec:
+  ports:
+    - port: 3306
+  selector:
+    tier: frontend
+  clusterIP: None
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: lamp-pv
+  labels:
+    type: local
+spec:
+  storageClassName: standard
+  persistentVolumeReclaimPolicy: Retain
+  capacity:
+    storage: 750Mi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/mnt/data"	
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lamp-pv-claim
+spec:
+  storageClassName: standard
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 550Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lamp-wp
+  labels:
+    app: lamp
+    tier: frontend
+spec:
+  selector:
+    matchLabels:
+      app: lamp
+      tier: frontend
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: lamp
+        tier: frontend
+    spec:
+      containers:
+      - image: wordpress:php7.4-apache
+        name: httpd-php-wp-container
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-root-pass
+              key: password
+        - name: MYSQL_DATABASE
+          valueFrom:
+            secretKeyRef:
+              name: mysql-db-url
+              key: database
+        - name: MYSQL_USER
+          valueFrom:
+            secretKeyRef:
+              name: mysql-user-pass
+              key: username
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-user-pass
+              key: password
+        - name: MYSQL_HOST
+          valueFrom:
+            secretKeyRef:
+              name: mysql-host
+              key: host
+        volumeMounts:
+        - name: lamp-persistent-storage
+          mountPath: /var/www/html			  
+      - image: mysql:5.6
+        name: mysql-container
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-root-pass
+              key: password
+        - name: MYSQL_DATABASE
+          valueFrom:
+            secretKeyRef:
+              name: mysql-db-url
+              key: database
+        - name: MYSQL_USER
+          valueFrom:
+            secretKeyRef:
+              name: mysql-user-pass
+              key: username
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-user-pass
+              key: password
+        - name: MYSQL_HOST
+          valueFrom:
+            secretKeyRef:
+              name: mysql-host
+              key: host
+        volumeMounts:
+        - name: lamp-persistent-storage
+          mountPath: /var/www/html		  
+      volumes:
+      - name: lamp-persistent-storage
+        persistentVolumeClaim:
+          claimName: lamp-pv-claim
+---
+
+EOF
+
+
+MYSQL=$(kubectl get pods | grep lamp-wp |awk '{print $1}'|  tail -n -1)
+
+kubectl exec -it $MYSQL -c mysql-container --  mysql -uroot -pR00t -hlocalhost ${Dbase}  < /tmp/db.sql
+
+kubectl exec -it $MYSQL -c httpd-php-wp-container --  cat /var/www/html/wp-config.php 
+
+kubectl exec -it $MYSQL -c httpd-php-wp-container --  sed -i "/DB_PASSWORD/s/'[^']*'/\$_ENV[\'MYSQL_PASSWORD\']/2" /var/www/html/wp-config.php
+
+kubectl exec -it $MYSQL -c httpd-php-wp-container  --  sed -i "/DB_NAME/s/'[^']*'/\$_ENV[\'MYSQL_DATABASE\']/2" /var/www/html/wp-config.php
+
+kubectl exec -it $MYSQL -c httpd-php-wp-container  --  sed -i "/DB_USER/s/'[^']*'/\$_ENV[\'MYSQL_USER\']/2" /var/www/html/wp-config.php
+
+kubectl exec -it $MYSQL -c httpd-php-wp-container  --  sed -i "/DB_HOST/s/'[^']*'/\$_ENV[\'MYSQL_HOST\']/2" /var/www/html/wp-config.php
+
