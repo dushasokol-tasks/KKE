@@ -1,0 +1,59 @@
+cd /home/thor
+
+sudo yum -y install epel-repo;sudo yum -y update;sudo yum -y install ansible;ansible --version
+
+cat << EOF > pam.yml
+- hosts: appservers
+  become: true
+  tasks:
+    - name: install EPEL repo
+      yum:
+        name=epel-release state=present
+
+    - name: install mod_authnz_external
+      yum:
+        name=mod_authnz_external state=present
+
+    - name: install pwauth
+      yum:
+        name=pwauth state=present
+
+    - name: apache add PAM
+      blockinfile:
+        dest: /etc/httpd/conf.d/authnz_external.conf
+        marker: "## {mark} added by ansible configuration"
+        block: |
+          <Directory /var/www/html/protected>
+           AuthType Basic
+           AuthName "PAM Authentication"
+           AuthBasicProvider external
+           AuthExternal pwauth
+           require valid-user
+          </Directory>
+
+        state: present
+        backup: yes
+
+    - name: restart
+      systemd:
+        name: httpd
+        state: restarted
+	
+EOF
+
+cat << EOF > myhosts
+[storage]
+ststor01 ansible_ssh_host=172.16.238.15 ansible_connection=ssh ansible_ssh_user=natasha ansible_ssh_pass=Bl@kW ansible_become_pass=Bl@kW
+[appservers]
+stapp01 ansible_ssh_host=172.16.238.10 ansible_connection=ssh ansible_ssh_user=tony ansible_ssh_pass=Ir0nM@n ansible_become_pass=Ir0nM@n
+stapp02 ansible_ssh_host=172.16.238.11 ansible_connection=ssh ansible_ssh_user=steve ansible_ssh_pass=Am3ric@ ansible_become_pass=Am3ric@
+stapp03 ansible_ssh_host=172.16.238.12 ansible_connection=ssh ansible_ssh_user=banner ansible_ssh_pass=BigGr33n ansible_become_pass=BigGr33n
+EOF
+
+cat << EOF > ansible.cfg
+[defaults]
+inventory = ./inventory
+host_key_checking = false
+EOF
+
+ansible-playbook -i myhosts pam.yml
